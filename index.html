@@ -222,6 +222,7 @@ maps.app.goo.gl</textarea>
 
   <div id="resultsCard" class="card" style="display:none;">
     <div class="summary" id="summary"></div>
+    <div id="errorLogBox" style="display:none; margin-top:12px; padding:12px 14px; background:#fdecea; border-radius:8px; font-size:13px; color:var(--danger);"></div>
     <div class="table-wrap">
       <table>
         <thead>
@@ -416,6 +417,7 @@ runBtn.addEventListener('click', async () => {
 
   let okCount = 0, excludedCount = 0, errorCount = 0, rawCount = 0;
   let reasonCounts = { 'チェーン店': 0, '飲食店以外(施設種別)': 0, 'HPあり': 0 };
+  let errorLog = [];
   const seen = new Set();
 
   for (let i = 0; i < stations.length; i++) {
@@ -480,6 +482,7 @@ runBtn.addEventListener('click', async () => {
       }
     } catch (e) {
       errorCount++;
+      errorLog.push(station + ': ' + e.message);
       setStatus(station + ' の検索でエラー: ' + e.message, true);
     }
   }
