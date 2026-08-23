@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>Local Works 営業リスト作成ツール</title>
+<style>
+  :root {
+    --navy: #1a2a3a;
+    --terracotta: #d97a42;
+    --bg: #f7f6f3;
+    --card: #ffffff;
+    --border: #e2e0da;
+    --text: #1a2a3a;
+    --muted: #6b6f76;
+    --danger: #c0392b;
+    --success: #1d9e75;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    margin: 0;
+    padding: 24px;
+    line-height: 1.6;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  h1 { font-size: 20px; font-weight: 700; margin: 0 0 4px; color: var(--navy); }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px 20px;
+    margin-bottom: 16px;
+  }
+  label { display: block; font-size: 13px; font-weight: 700; margin-bottom: 6px; color: var(--navy); }
+  input[type=text], input[type=password], textarea {
+    width: 100%;
+    padding: 9px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 14px;
+    font-family: inherit;
+    background: #fff;
+  }
+  textarea { resize: vertical; min-height: 90px; }
+  .row { display: flex; gap: 16px; flex-wrap: wrap; }
+  .row > div { flex: 1; min-width: 220px; }
+  .checkbox-row { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 13px; color: var(--muted); }
+  .checkbox-row input { width: auto; }
+  button {
+    background: var(--terracotta);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 20px;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  button:disabled { background: #ccc; cursor: not-allowed; }
+  button.secondary {
+    background: #fff;
+    color: var(--navy);
+    border: 1px solid var(--border);
+  }
+  .status { font-size: 13px; color: var(--muted); margin-top: 10px; min-height: 18px; }
+  .status.error { color: var(--danger); }
+  .badge {
+    display: inline-block;
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 700;
+  }
+  .badge.ok { background: #e1f5ee; color: var(--success); }
+  .badge.excluded { background: #fdecea; color: var(--danger); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 6px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { background: var(--navy); color: #fff; font-weight: 700; position: sticky; top: 0; }
+  tr:hover td { background: #faf9f6; }
+  .table-wrap { max-height: 520px; overflow-y: auto; border: 1px solid var(--border); border-radius: 10px; margin-top: 12px; }
+  .summary { display: flex; gap: 20px; flex-wrap: wrap; margin-top: 14px; }
+  .summary .stat { background: #f2f1ec; border-radius: 8px; padding: 10px 16px; }
+  .summary .stat .num { font-size: 20px; font-weight: 700; color: var(--navy); }
+  .summary .stat .label { font-size: 12px; color: var(--muted); }
+  .link { color: var(--terracotta); }
+  .toolbar { display: flex; gap: 10px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Local Works 営業リスト作成ツール</h1>
+  <div class="sub">駅名を入れるだけで周辺の飲食店を検索、チェーン店とHPありの店を自動で除外してリスト化します。</div>
+
+  <div class="card">
+    <div class="row">
+      <div>
+        <label>Google Places API キー</label>
+        <input type="password" id="apiKey" placeholder="AIza... で始まるキーを貼り付け">
+        <div class="checkbox-row">
+          <input type="checkbox" id="rememberKey">
+          <label style="margin:0;font-weight:400;" for="rememberKey">このブラウザに保存する(他の人とは共有されません)</label>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <label>検索するエリア(駅名など、1行に1つ)</label>
+    <textarea id="stations">北千里
+南千里
+千里山
+関大前
+吹田
+下新庄
+淡路
+茨木駅</textarea>
+    <div class="sub" style="margin-top:6px;">各行に対して「〇〇駅 個人経営 飲食店」のような検索を自動で行います。</div>
+  </div>
+
+  <div class="card">
+    <label>除外するチェーン名(1行に1つ・追加/編集OK)</label>
+    <textarea id="chains" style="min-height:120px;">鳥貴族
+八剣伝
+くら寿司
+スシロー
+はま寿司
+かっぱ寿司
+かごの屋
+満マル
+東京油組
+吉野家
+すき家
+松屋
+マクドナルド
+ケンタッキー
+モスバーガー
+スターバックス
+ドトール
+タリーズ
+コメダ珈琲
+サイゼリヤ
+ガスト
+バーミヤン
+ジョナサン
+ロイヤルホスト
+デニーズ
+ココス
+日高屋
+餃子の王将
+王将
+はなまるうどん
+丸亀製麺
+CoCo壱番屋
+ココイチ
+天下一品
+一蘭
+幸楽苑
+大戸屋
+やよい軒
+魚民
+笑笑
+白木屋
+和民
+ワタミ
+金の蔵
+いきなりステーキ
+サブウェイ
+ミスタードーナツ
+築地銀だこ
+ほっともっと
+ほっかほっか亭
+オリジン弁当
+かつや
+８番らーめん
+山岡家
+来来亭
+星乃珈琲
+プロント</textarea>
+  </div>
+
+  <div class="card">
+    <div class="toolbar">
+      <button id="runBtn">検索スタート</button>
+      <button class="secondary" id="csvBtn" disabled>CSVダウンロード</button>
+      <span class="status" id="status"></span>
+    </div>
+  </div>
+
+  <div id="resultsCard" class="card" style="display:none;">
+    <div class="summary" id="summary"></div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>状態</th>
+            <th>エリア</th>
+            <th>店名</th>
+            <th>住所</th>
+            <th>電話番号</th>
+            <th>評価</th>
+            <th>理由</th>
+          </tr>
+        </thead>
+        <tbody id="resultsBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+const statusEl = document.getElementById('status');
+const runBtn = document.getElementById('runBtn');
+const csvBtn = document.getElementById('csvBtn');
+const resultsCard = document.getElementById('resultsCard');
+const resultsBody = document.getElementById('resultsBody');
+const summaryEl = document.getElementById('summary');
+const apiKeyInput = document.getElementById('apiKey');
+const rememberKeyEl = document.getElementById('rememberKey');
+
+let lastRows = [];
+
+async function loadSavedKey() {
+  try {
+    if (window.storage) {
+      const r = await window.storage.get('places_api_key', false);
+      if (r && r.value) {
+        apiKeyInput.value = r.value;
+        rememberKeyEl.checked = true;
+      }
+    }
+  } catch (e) {}
+}
+loadSavedKey();
+
+function setStatus(msg, isError) {
+  statusEl.textContent = msg;
+  statusEl.className = 'status' + (isError ? ' error' : '');
+}
+
+function isChain(name, chainList) {
+  const n = name.toLowerCase();
+  return chainList.some(c => c && n.includes(c.toLowerCase()));
+}
+
+const EXCLUDE_TYPES = ['lodging', 'shopping_mall', 'supermarket', 'grocery_store', 'convenience_store', 'department_store', 'laundry', 'gas_station', 'car_repair'];
+
+async function searchStation(station, apiKey) {
+  const query = station + ' 個人経営 飲食店';
+  const res = await fetch('https://places.googleapis.com/v1/places:searchText', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Goog-Api-Key': apiKey,
+      'X-Goog-FieldMask': 'places.displayName,places.formattedAddress,places.nationalPhoneNumber,places.internationalPhoneNumber,places.websiteUri,places.rating,places.types'
+    },
+    body: JSON.stringify({
+      textQuery: query,
+      languageCode: 'ja',
+      maxResultCount: 20
+    })
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error('APIエラー(' + res.status + '): ' + errText.slice(0, 200));
+  }
+  const data = await res.json();
+  return data.places || [];
+}
+
+function escapeHtml(s) {
+  return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+runBtn.addEventListener('click', async () => {
+  const apiKey = apiKeyInput.value.trim();
+  if (!apiKey) {
+    setStatus('APIキーを入力してください', true);
+    return;
+  }
+  const stations = document.getElementById('stations').value.split('\n').map(s => s.trim()).filter(Boolean);
+  const chainList = document.getElementById('chains').value.split('\n').map(s => s.trim()).filter(Boolean);
+
+  if (stations.length === 0) {
+    setStatus('検索エリアを1つ以上入力してください', true);
+    return;
+  }
+
+  if (rememberKeyEl.checked && window.storage) {
+    try { await window.storage.set('places_api_key', apiKey, false); } catch (e) {}
+  }
+
+  runBtn.disabled = true;
+  csvBtn.disabled = true;
+  resultsBody.innerHTML = '';
+  resultsCard.style.display = 'block';
+  lastRows = [];
+
+  let okCount = 0, excludedCount = 0, errorCount = 0;
+  const seen = new Set();
+
+  for (let i = 0; i < stations.length; i++) {
+    const station = stations[i];
+    setStatus('検索中... (' + (i + 1) + '/' + stations.length + ') ' + station);
+    try {
+      const places = await searchStation(station, apiKey);
+      for (const p of places) {
+        const name = (p.displayName && p.displayName.text) || '';
+        if (!name || seen.has(name + p.formattedAddress)) continue;
+        seen.add(name + p.formattedAddress);
+
+        const types = p.types || [];
+        let status = 'ok';
+        let reason = '';
+
+        if (isChain(name, chainList)) {
+          status = 'excluded';
+          reason = 'チェーン店';
+        } else if (types.some(t => EXCLUDE_TYPES.includes(t))) {
+          status = 'excluded';
+          reason = '飲食店以外(施設種別)';
+        } else if (p.websiteUri) {
+          status = 'excluded';
+          reason = 'HPあり';
+        }
+
+        if (status === 'ok') okCount++; else excludedCount++;
+
+        const row = {
+          status, station, name,
+          address: p.formattedAddress || '',
+          phone: p.nationalPhoneNumber || p.internationalPhoneNumber || '',
+          rating: p.rating || '',
+          reason,
+          website: p.websiteUri || ''
+        };
+        lastRows.push(row);
+
+        const tr = document.createElement('tr');
+        tr.innerHTML =
+          '<td><span class="badge ' + (status === 'ok' ? 'ok' : 'excluded') + '">' + (status === 'ok' ? '対象' : '除外') + '</span></td>' +
+          '<td>' + escapeHtml(station) + '</td>' +
+          '<td>' + escapeHtml(name) + '</td>' +
+          '<td>' + escapeHtml(row.address) + '</td>' +
+          '<td>' + escapeHtml(row.phone) + '</td>' +
+          '<td>' + escapeHtml(row.rating) + '</td>' +
+          '<td>' + escapeHtml(reason) + '</td>';
+        resultsBody.appendChild(tr);
+      }
+    } catch (e) {
+      errorCount++;
+      setStatus(station + ' の検索でエラー: ' + e.message, true);
+    }
+  }
+
+  summaryEl.innerHTML =
+    '<div class="stat"><div class="num">' + okCount + '</div><div class="label">架電対象(HPなし・非チェーン)</div></div>' +
+    '<div class="stat"><div class="num">' + excludedCount + '</div><div class="label">除外(HPあり/チェーン等)</div></div>' +
+    '<div class="stat"><div class="num">' + stations.length + '</div><div class="label">検索エリア数</div></div>';
+
+  runBtn.disabled = false;
+  csvBtn.disabled = lastRows.length === 0;
+  setStatus(errorCount > 0 ? '完了(一部エラーあり。上のメッセージ参照)' : '完了しました');
+});
+
+csvBtn.addEventListener('click', () => {
+  const header = ['状態', 'エリア', '店名', '住所', '電話番号', '評価', '理由', 'HP'];
+  const lines = [header.join(',')];
+  for (const r of lastRows) {
+    const cells = [
+      r.status === 'ok' ? '対象' : '除外',
+      r.station, r.name, r.address, r.phone, r.rating, r.reason, r.website
+    ].map(v => '"' + String(v).replace(/"/g, '""') + '"');
+    lines.push(cells.join(','));
+  }
+  const csv = '\uFEFF' + lines.join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'local_works_営業リスト.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+});
+</script>
+</body>
+</html>
