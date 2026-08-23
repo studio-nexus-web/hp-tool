@@ -182,6 +182,31 @@ CoCo壱番屋
   </div>
 
   <div class="card">
+    <label>「HPなし」扱いにするドメイン(SNS・口コミ・出前サイトなど・1行に1つ)</label>
+    <div class="sub" style="margin-top:0;margin-bottom:6px;">ここに載ってるドメインのリンクしか登録されてない店は「HPあり」とみなさず、架電対象に含めます。</div>
+    <textarea id="nonSiteDomains" style="min-height:110px;">instagram.com
+facebook.com
+twitter.com
+x.com
+tabelog.com
+hotpepper.jp
+gnavi.co.jp
+retty.me
+favy.jp
+ubereats.com
+demae-can.com
+wolt.com
+chompy.jp
+menu.inc
+linktr.ee
+lin.ee
+note.com
+ameblo.jp
+foursquare.com
+maps.app.goo.gl</textarea>
+  </div>
+
+  <div class="card">
     <div class="toolbar">
       <button id="runBtn">検索スタート</button>
       <button class="secondary" id="csvBtn" disabled>CSVダウンロード</button>
@@ -247,6 +272,13 @@ function isChain(name, chainList) {
 
 const EXCLUDE_TYPES = ['lodging', 'shopping_mall', 'supermarket', 'grocery_store', 'convenience_store', 'department_store', 'laundry', 'gas_station', 'car_repair'];
 
+function isRealWebsite(url, nonSiteDomains) {
+  if (!url) return false;
+  let host = '';
+  try { host = new URL(url).hostname.toLowerCase(); } catch (e) { return true; }
+  return !nonSiteDomains.some(d => d && host.includes(d.toLowerCase()));
+}
+
 async function searchStation(station, apiKey) {
   const query = station + ' 個人経営 飲食店';
   const res = await fetch('https://places.googleapis.com/v1/places:searchText', {
@@ -282,6 +314,7 @@ runBtn.addEventListener('click', async () => {
   }
   const stations = document.getElementById('stations').value.split('\n').map(s => s.trim()).filter(Boolean);
   const chainList = document.getElementById('chains').value.split('\n').map(s => s.trim()).filter(Boolean);
+  const nonSiteDomains = document.getElementById('nonSiteDomains').value.split('\n').map(s => s.trim()).filter(Boolean);
 
   if (stations.length === 0) {
     setStatus('検索エリアを1つ以上入力してください', true);
@@ -299,6 +332,7 @@ runBtn.addEventListener('click', async () => {
   lastRows = [];
 
   let okCount = 0, excludedCount = 0, errorCount = 0;
+  let reasonCounts = { 'チェーン店': 0, '飲食店以外(施設種別)': 0, 'HPあり': 0 };
   const seen = new Set();
 
   for (let i = 0; i < stations.length; i++) {
@@ -321,12 +355,20 @@ runBtn.addEventListener('click', async () => {
         } else if (types.some(t => EXCLUDE_TYPES.includes(t))) {
           status = 'excluded';
           reason = '飲食店以外(施設種別)';
-        } else if (p.websiteUri) {
+        } else if (isRealWebsite(p.websiteUri, nonSiteDomains)) {
           status = 'excluded';
-          reason = 'HPあり';
+          reason = 'HPあり(' + (function(){ try { return new URL(p.websiteUri).hostname; } catch(e){ return p.websiteUri; } })() + ')';
+        } else if (p.websiteUri) {
+          reason = 'SNS/口コミサイトのみ(対象に含む)';
         }
 
-        if (status === 'ok') okCount++; else excludedCount++;
+        if (status === 'ok') {
+          okCount++;
+        } else {
+          excludedCount++;
+          if (reason.startsWith('HPあり')) reasonCounts['HPあり']++;
+          else if (reasonCounts[reason] !== undefined) reasonCounts[reason]++;
+        }
 
         const row = {
           status, station, name,
@@ -357,7 +399,10 @@ runBtn.addEventListener('click', async () => {
 
   summaryEl.innerHTML =
     '<div class="stat"><div class="num">' + okCount + '</div><div class="label">架電対象(HPなし・非チェーン)</div></div>' +
-    '<div class="stat"><div class="num">' + excludedCount + '</div><div class="label">除外(HPあり/チェーン等)</div></div>' +
+    '<div class="stat"><div class="num">' + excludedCount + '</div><div class="label">除外合計</div></div>' +
+    '<div class="stat"><div class="num">' + reasonCounts['HPあり'] + '</div><div class="label">└ 自社HPあり</div></div>' +
+    '<div class="stat"><div class="num">' + reasonCounts['チェーン店'] + '</div><div class="label">└ チェーン店</div></div>' +
+    '<div class="stat"><div class="num">' + reasonCounts['飲食店以外(施設種別)'] + '</div><div class="label">└ 飲食店以外</div></div>' +
     '<div class="stat"><div class="num">' + stations.length + '</div><div class="label">検索エリア数</div></div>';
 
   runBtn.disabled = false;
