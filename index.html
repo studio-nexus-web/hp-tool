@@ -117,7 +117,10 @@
 下新庄
 淡路
 茨木駅</textarea>
-    <div class="sub" style="margin-top:6px;">各行に対して「〇〇駅 個人経営 飲食店」のような検索を自動で行います。</div>
+    <div class="sub" style="margin-top:6px;">各駅の座標を中心に、下の半径の円の中を機械的に検索します(キーワードの関連度ランキングに左右されません)。</div>
+    <label style="margin-top:12px;">検索半径(メートル)</label>
+    <input type="text" id="radius" value="900" style="max-width:140px;">
+    <div class="sub" style="margin-top:4px;">徒歩12分 ≒ 900m目安。広げると件数は増えますが関係ないエリアも混ざります。</div>
   </div>
 
   <div class="card">
@@ -279,9 +282,40 @@ function isRealWebsite(url, nonSiteDomains) {
   return !nonSiteDomains.some(d => d && host.includes(d.toLowerCase()));
 }
 
-async function searchStation(station, apiKey) {
-  const query = station + ' 個人経営 飲食店';
+async function geocodeStation(station, apiKey) {
   const res = await fetch('https://places.googleapis.com/v1/places:searchText', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Goog-Api-Key': apiKey,
+      'X-Goog-FieldMask': 'places.location,places.displayName'
+    },
+    body: JSON.stringify({
+      textQuery: station + ' 駅',
+      languageCode: 'ja',
+      maxResultCount: 1
+    })
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error('駅の位置取得エラー(' + res.status + '): ' + errText.slice(0, 200));
+  }
+  const data = await res.json();
+  if (!data.places || data.places.length === 0) {
+    throw new Error('「' + station + '」の位置が見つかりませんでした。駅名の表記を見直してください');
+  }
+  return data.places[0].location;
+}
+
+const CATEGORY_TYPES = [
+  ['restaurant'],
+  ['cafe', 'bakery'],
+  ['bar'],
+  ['meal_takeaway']
+];
+
+async function searchNearbyByType(location, radius, includedTypes, apiKey) {
+  const res = await fetch('https://places.googleapis.com/v1/places:searchNearby', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -289,9 +323,15 @@ async function searchStation(station, apiKey) {
       'X-Goog-FieldMask': 'places.displayName,places.formattedAddress,places.nationalPhoneNumber,places.internationalPhoneNumber,places.websiteUri,places.rating,places.types'
     },
     body: JSON.stringify({
-      textQuery: query,
+      includedTypes: includedTypes,
+      maxResultCount: 20,
       languageCode: 'ja',
-      maxResultCount: 20
+      locationRestriction: {
+        circle: {
+          center: { latitude: location.latitude, longitude: location.longitude },
+          radius: radius
+        }
+      }
     })
   });
   if (!res.ok) {
@@ -300,6 +340,16 @@ async function searchStation(station, apiKey) {
   }
   const data = await res.json();
   return data.places || [];
+}
+
+async function searchStation(station, apiKey, radius) {
+  const location = await geocodeStation(station, apiKey);
+  let all = [];
+  for (const types of CATEGORY_TYPES) {
+    const places = await searchNearbyByType(location, radius, types, apiKey);
+    all = all.concat(places);
+  }
+  return all;
 }
 
 function escapeHtml(s) {
@@ -315,6 +365,7 @@ runBtn.addEventListener('click', async () => {
   const stations = document.getElementById('stations').value.split('\n').map(s => s.trim()).filter(Boolean);
   const chainList = document.getElementById('chains').value.split('\n').map(s => s.trim()).filter(Boolean);
   const nonSiteDomains = document.getElementById('nonSiteDomains').value.split('\n').map(s => s.trim()).filter(Boolean);
+  const radius = parseFloat(document.getElementById('radius').value) || 900;
 
   if (stations.length === 0) {
     setStatus('検索エリアを1つ以上入力してください', true);
@@ -337,9 +388,9 @@ runBtn.addEventListener('click', async () => {
 
   for (let i = 0; i < stations.length; i++) {
     const station = stations[i];
-    setStatus('検索中... (' + (i + 1) + '/' + stations.length + ') ' + station);
+    setStatus('検索中... (' + (i + 1) + '/' + stations.length + ') ' + station + '(半径' + radius + 'm・4カテゴリ)');
     try {
-      const places = await searchStation(station, apiKey);
+      const places = await searchStation(station, apiKey, radius);
       for (const p of places) {
         const name = (p.displayName && p.displayName.text) || '';
         if (!name || seen.has(name + p.formattedAddress)) continue;
