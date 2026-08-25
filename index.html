@@ -286,29 +286,39 @@ function isRealWebsite(url, nonSiteDomains) {
   return !nonSiteDomains.some(d => d && host.includes(d.toLowerCase()));
 }
 
-async function geocodeStation(station, apiKey) {
-  const res = await fetch('https://places.googleapis.com/v1/places:searchText', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Goog-Api-Key': apiKey,
-      'X-Goog-FieldMask': 'places.location,places.displayName'
-    },
-    body: JSON.stringify({
-      textQuery: station + ' 駅',
-      languageCode: 'ja',
-      maxResultCount: 1
-    })
-  });
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error('駅の位置取得エラー(' + res.status + '): ' + errText.slice(0, 200));
+let mapsLoaded = false;
+let mapsLoadPromise = null;
+
+function loadGoogleMapsScript(apiKey) {
+  if (mapsLoaded && window.google && window.google.maps && window.google.maps.places) {
+    return Promise.resolve();
   }
-  const data = await res.json();
-  if (!data.places || data.places.length === 0) {
+  if (mapsLoadPromise) return mapsLoadPromise;
+  mapsLoadPromise = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'https://maps.googleapis.com/maps/api/js?key=' + encodeURIComponent(apiKey) + '&libraries=places&v=weekly&loading=async';
+    script.async = true;
+    script.onload = () => { mapsLoaded = true; resolve(); };
+    script.onerror = () => { mapsLoadPromise = null; reject(new Error('Google Maps JavaScript APIの読み込みに失敗しました。APIキー、または「Maps JavaScript API」の有効化を確認してください。')); };
+    document.head.appendChild(script);
+  });
+  return mapsLoadPromise;
+}
+
+async function geocodeStation(station) {
+  const { Place } = await google.maps.importLibrary('places');
+  const request = {
+    textQuery: station + ' 駅',
+    fields: ['location', 'displayName'],
+    language: 'ja',
+    maxResultCount: 1
+  };
+  const { places } = await Place.searchByText(request);
+  if (!places || places.length === 0) {
     throw new Error('「' + station + '」の位置が見つかりませんでした。駅名の表記を見直してください');
   }
-  return data.places[0].location;
+  const loc = places[0].location;
+  return { lat: loc.lat(), lng: loc.lng() };
 }
 
 const CATEGORY_TYPES = [
@@ -322,60 +332,48 @@ function buildGrid(center, radius, subRadius) {
   const spacing = subRadius * 1.3;
   const stepsOut = Math.max(1, Math.ceil(radius / spacing));
   const latStep = spacing / 111320;
-  const lngStep = spacing / (111320 * Math.cos(center.latitude * Math.PI / 180));
+  const lngStep = spacing / (111320 * Math.cos(center.lat * Math.PI / 180));
   const points = [];
   for (let dy = -stepsOut; dy <= stepsOut; dy++) {
     for (let dx = -stepsOut; dx <= stepsOut; dx++) {
-      const lat = center.latitude + dy * latStep;
-      const lng = center.longitude + dx * lngStep;
+      const lat = center.lat + dy * latStep;
+      const lng = center.lng + dx * lngStep;
       const distM = Math.sqrt(
-        Math.pow((lat - center.latitude) * 111320, 2) +
-        Math.pow((lng - center.longitude) * 111320 * Math.cos(center.latitude * Math.PI / 180), 2)
+        Math.pow((lat - center.lat) * 111320, 2) +
+        Math.pow((lng - center.lng) * 111320 * Math.cos(center.lat * Math.PI / 180), 2)
       );
-      if (distM <= radius) points.push({ latitude: lat, longitude: lng });
+      if (distM <= radius) points.push({ lat, lng });
     }
   }
   return points;
 }
 
-async function searchNearbyByType(location, radius, includedTypes, apiKey) {
-  const res = await fetch('https://places.googleapis.com/v1/places:searchNearby', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Goog-Api-Key': apiKey,
-      'X-Goog-FieldMask': 'places.id,places.displayName,places.formattedAddress,places.nationalPhoneNumber,places.internationalPhoneNumber,places.websiteUri,places.rating,places.types'
+async function searchNearbyByType(point, radius, includedTypes) {
+  const { Place, SearchNearbyRankPreference } = await google.maps.importLibrary('places');
+  const request = {
+    fields: ['id', 'displayName', 'formattedAddress', 'nationalPhoneNumber', 'internationalPhoneNumber', 'websiteURI', 'rating', 'types'],
+    locationRestriction: {
+      center: new google.maps.LatLng(point.lat, point.lng),
+      radius: radius
     },
-    body: JSON.stringify({
-      includedTypes: includedTypes,
-      maxResultCount: 20,
-      rankPreference: 'DISTANCE',
-      languageCode: 'ja',
-      locationRestriction: {
-        circle: {
-          center: { latitude: location.latitude, longitude: location.longitude },
-          radius: radius
-        }
-      }
-    })
-  });
-  if (!res.ok) {
-    const errText = await res.text();
-    throw new Error('APIエラー(' + res.status + '): ' + errText.slice(0, 200));
-  }
-  const data = await res.json();
-  return data.places || [];
+    includedPrimaryTypes: includedTypes,
+    maxResultCount: 20,
+    rankPreference: SearchNearbyRankPreference.DISTANCE,
+    language: 'ja'
+  };
+  const { places } = await Place.searchNearby(request);
+  return places || [];
 }
 
-async function searchStation(station, apiKey, radius, subRadius, onProgress) {
-  const location = await geocodeStation(station, apiKey);
+async function searchStation(station, radius, subRadius, onProgress) {
+  const location = await geocodeStation(station);
   const grid = buildGrid(location, radius, subRadius);
   let all = [];
   let done = 0;
   const total = grid.length * CATEGORY_TYPES.length;
   for (const point of grid) {
     for (const types of CATEGORY_TYPES) {
-      const places = await searchNearbyByType(point, subRadius, types, apiKey);
+      const places = await searchNearbyByType(point, subRadius, types);
       all = all.concat(places);
       done++;
       if (onProgress) onProgress(done, total, grid.length);
@@ -414,6 +412,15 @@ runBtn.addEventListener('click', async () => {
   resultsBody.innerHTML = '';
   resultsCard.style.display = 'block';
   lastRows = [];
+  setStatus('Google Mapsライブラリを読み込み中...');
+
+  try {
+    await loadGoogleMapsScript(apiKey);
+  } catch (e) {
+    setStatus(e.message, true);
+    runBtn.disabled = false;
+    return;
+  }
 
   let okCount = 0, excludedCount = 0, errorCount = 0, rawCount = 0;
   let reasonCounts = { 'チェーン店': 0, '飲食店以外(施設種別)': 0, 'HPあり': 0 };
@@ -424,12 +431,12 @@ runBtn.addEventListener('click', async () => {
     const station = stations[i];
     setStatus('検索中... (' + (i + 1) + '/' + stations.length + ') ' + station + ' の位置を取得中');
     try {
-      const places = await searchStation(station, apiKey, radius, subRadius, (done, total, gridSize) => {
+      const places = await searchStation(station, radius, subRadius, (done, total, gridSize) => {
         setStatus('検索中... (' + (i + 1) + '/' + stations.length + ') ' + station + '(' + gridSize + '分割 ' + done + '/' + total + ')');
       });
       for (const p of places) {
         rawCount++;
-        const name = (p.displayName && p.displayName.text) || '';
+        const name = p.displayName || '';
         const dedupKey = p.id || (name + p.formattedAddress);
         if (!name || seen.has(dedupKey)) continue;
         seen.add(dedupKey);
@@ -444,10 +451,10 @@ runBtn.addEventListener('click', async () => {
         } else if (types.some(t => EXCLUDE_TYPES.includes(t))) {
           status = 'excluded';
           reason = '飲食店以外(施設種別)';
-        } else if (isRealWebsite(p.websiteUri, nonSiteDomains)) {
+        } else if (isRealWebsite(p.websiteURI, nonSiteDomains)) {
           status = 'excluded';
-          reason = 'HPあり(' + (function(){ try { return new URL(p.websiteUri).hostname; } catch(e){ return p.websiteUri; } })() + ')';
-        } else if (p.websiteUri) {
+          reason = 'HPあり(' + (function(){ try { return new URL(p.websiteURI).hostname; } catch(e){ return p.websiteURI; } })() + ')';
+        } else if (p.websiteURI) {
           reason = 'SNS/口コミサイトのみ(対象に含む)';
         }
 
@@ -465,7 +472,7 @@ runBtn.addEventListener('click', async () => {
           phone: p.nationalPhoneNumber || p.internationalPhoneNumber || '',
           rating: p.rating || '',
           reason,
-          website: p.websiteUri || ''
+          website: p.websiteURI || ''
         };
         lastRows.push(row);
 
@@ -500,7 +507,17 @@ runBtn.addEventListener('click', async () => {
 
   runBtn.disabled = false;
   csvBtn.disabled = lastRows.length === 0;
-  setStatus(errorCount > 0 ? '完了(一部エラーあり。上のメッセージ参照)' : '完了しました');
+
+  const errorLogBox = document.getElementById('errorLogBox');
+  if (errorLog.length > 0) {
+    errorLogBox.style.display = 'block';
+    errorLogBox.innerHTML = '<strong>エラーが発生したエリア(' + errorLog.length + '件):</strong><br>' +
+      errorLog.map(e => escapeHtml(e)).join('<br>');
+    setStatus('完了(一部エラーあり。下の赤枠を確認してください)', true);
+  } else {
+    errorLogBox.style.display = 'none';
+    setStatus('完了しました');
+  }
 });
 
 csvBtn.addEventListener('click', () => {
