@@ -306,7 +306,7 @@ function loadGoogleMapsScript(apiKey) {
 }
 
 async function geocodeStation(station) {
-  const { Place } = await google.maps.importLibrary('places');
+  const Place = google.maps.places.Place;
   const request = {
     textQuery: station + ' 駅',
     fields: ['location', 'displayName'],
@@ -349,7 +349,8 @@ function buildGrid(center, radius, subRadius) {
 }
 
 async function searchNearbyByType(point, radius, includedTypes) {
-  const { Place, SearchNearbyRankPreference } = await google.maps.importLibrary('places');
+  const Place = google.maps.places.Place;
+  const SearchNearbyRankPreference = google.maps.places.SearchNearbyRankPreference;
   const request = {
     fields: ['id', 'displayName', 'formattedAddress', 'nationalPhoneNumber', 'internationalPhoneNumber', 'websiteURI', 'rating', 'types'],
     locationRestriction: {
