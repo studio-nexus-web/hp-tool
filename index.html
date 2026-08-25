@@ -380,21 +380,44 @@ async function searchNearbyByType(point, radius, includedTypes, apiKey) {
   return places || [];
 }
 
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function searchNearbyWithRetry(point, radius, includedTypes, apiKey, retriesLeft) {
+  try {
+    return await searchNearbyByType(point, radius, includedTypes, apiKey);
+  } catch (e) {
+    const msg = (e && e.message) || '';
+    if (retriesLeft > 0 && (msg.includes('RESOURCE_EXHAUSTED') || msg.includes('Quota exceeded') || msg.includes('rate'))) {
+      await sleep(3000);
+      return searchNearbyWithRetry(point, radius, includedTypes, apiKey, retriesLeft - 1);
+    }
+    throw e;
+  }
+}
+
 async function searchStation(station, apiKey, radius, subRadius, onProgress) {
   const location = await geocodeStation(station, apiKey);
   const grid = buildGrid(location, radius, subRadius);
   let all = [];
+  let cellErrors = [];
   let done = 0;
   const total = grid.length * CATEGORY_TYPES.length;
   for (const point of grid) {
     for (const types of CATEGORY_TYPES) {
-      const places = await searchNearbyByType(point, subRadius, types, apiKey);
-      all = all.concat(places);
+      try {
+        const places = await searchNearbyWithRetry(point, subRadius, types, apiKey, 3);
+        all = all.concat(places);
+      } catch (e) {
+        cellErrors.push(e.message);
+      }
       done++;
       if (onProgress) onProgress(done, total, grid.length);
+      await sleep(120);
     }
   }
-  return all;
+  return { places: all, cellErrors };
 }
 
 function escapeHtml(s) {
@@ -446,9 +469,12 @@ runBtn.addEventListener('click', async () => {
     const station = stations[i];
     setStatus('検索中... (' + (i + 1) + '/' + stations.length + ') ' + station + ' の位置を取得中');
     try {
-      const places = await searchStation(station, apiKey, radius, subRadius, (done, total, gridSize) => {
+      const { places, cellErrors } = await searchStation(station, apiKey, radius, subRadius, (done, total, gridSize) => {
         setStatus('検索中... (' + (i + 1) + '/' + stations.length + ') ' + station + '(' + gridSize + '分割 ' + done + '/' + total + ')');
       });
+      if (cellErrors && cellErrors.length > 0) {
+        errorLog.push(station + ': ' + cellErrors.length + '個のマスで取得失敗(他のマスの結果は反映済み) 例: ' + cellErrors[0]);
+      }
       for (const p of places) {
         rawCount++;
         const name = p.displayName || '';
