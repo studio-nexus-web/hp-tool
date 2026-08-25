@@ -215,7 +215,8 @@ maps.app.goo.gl</textarea>
   <div class="card">
     <div class="toolbar">
       <button id="runBtn">検索スタート</button>
-      <button class="secondary" id="csvBtn" disabled>CSVダウンロード</button>
+      <button class="secondary" id="csvBtn" disabled>CSVダウンロード(全件)</button>
+      <button class="secondary" id="csvTargetBtn" disabled>CSVダウンロード(架電対象のみ)</button>
       <span class="status" id="status"></span>
     </div>
   </div>
@@ -246,6 +247,7 @@ maps.app.goo.gl</textarea>
 const statusEl = document.getElementById('status');
 const runBtn = document.getElementById('runBtn');
 const csvBtn = document.getElementById('csvBtn');
+const csvTargetBtn = document.getElementById('csvTargetBtn');
 const resultsCard = document.getElementById('resultsCard');
 const resultsBody = document.getElementById('resultsBody');
 const summaryEl = document.getElementById('summary');
@@ -447,6 +449,7 @@ runBtn.addEventListener('click', async () => {
 
   runBtn.disabled = true;
   csvBtn.disabled = true;
+  csvTargetBtn.disabled = true;
   resultsBody.innerHTML = '';
   resultsCard.style.display = 'block';
   lastRows = [];
@@ -548,6 +551,7 @@ runBtn.addEventListener('click', async () => {
 
   runBtn.disabled = false;
   csvBtn.disabled = lastRows.length === 0;
+  csvTargetBtn.disabled = lastRows.filter(r => r.status === 'ok').length === 0;
 
   const errorLogBox = document.getElementById('errorLogBox');
   if (errorLog.length > 0) {
@@ -561,10 +565,10 @@ runBtn.addEventListener('click', async () => {
   }
 });
 
-csvBtn.addEventListener('click', () => {
+function downloadCsv(rows, filename) {
   const header = ['状態', 'エリア', '店名', '住所', '電話番号', '評価', '理由', 'HP'];
   const lines = [header.join(',')];
-  for (const r of lastRows) {
+  for (const r of rows) {
     const cells = [
       r.status === 'ok' ? '対象' : '除外',
       r.station, r.name, r.address, r.phone, r.rating, r.reason, r.website
@@ -576,9 +580,18 @@ csvBtn.addEventListener('click', () => {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'local_works_営業リスト.csv';
+  a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+csvBtn.addEventListener('click', () => {
+  downloadCsv(lastRows, 'local_works_営業リスト_全件.csv');
+});
+
+csvTargetBtn.addEventListener('click', () => {
+  const targetRows = lastRows.filter(r => r.status === 'ok');
+  downloadCsv(targetRows, 'local_works_営業リスト_架電対象のみ.csv');
 });
 </script>
 </body>
