@@ -368,7 +368,7 @@ function buildGrid(center, radius, subRadius) {
 async function searchNearbyByType(point, radius, includedTypes, apiKey) {
   const { Place, SearchNearbyRankPreference } = await loadPlacesLibrary(apiKey);
   const request = {
-    fields: ['id', 'displayName', 'formattedAddress', 'nationalPhoneNumber', 'internationalPhoneNumber', 'websiteURI', 'rating', 'types'],
+    fields: ['id', 'displayName', 'formattedAddress', 'nationalPhoneNumber', 'internationalPhoneNumber', 'websiteURI', 'rating', 'types', 'businessStatus'],
     locationRestriction: {
       center: new google.maps.LatLng(point.lat, point.lng),
       radius: radius
@@ -464,7 +464,7 @@ runBtn.addEventListener('click', async () => {
   }
 
   let okCount = 0, excludedCount = 0, errorCount = 0, rawCount = 0;
-  let reasonCounts = { 'チェーン店': 0, '飲食店以外(施設種別)': 0, 'HPあり': 0 };
+  let reasonCounts = { 'チェーン店': 0, '飲食店以外(施設種別)': 0, 'HPあり': 0, '閉業': 0, '臨時休業': 0 };
   let errorLog = [];
   const seen = new Set();
 
@@ -489,7 +489,13 @@ runBtn.addEventListener('click', async () => {
         let status = 'ok';
         let reason = '';
 
-        if (isChain(name, chainList)) {
+        if (p.businessStatus === 'CLOSED_PERMANENTLY') {
+          status = 'excluded';
+          reason = '閉業';
+        } else if (p.businessStatus === 'CLOSED_TEMPORARILY') {
+          status = 'excluded';
+          reason = '臨時休業';
+        } else if (isChain(name, chainList)) {
           status = 'excluded';
           reason = 'チェーン店';
         } else if (types.some(t => EXCLUDE_TYPES.includes(t))) {
@@ -547,6 +553,8 @@ runBtn.addEventListener('click', async () => {
     '<div class="stat"><div class="num">' + reasonCounts['HPあり'] + '</div><div class="label">└ 自社HPあり</div></div>' +
     '<div class="stat"><div class="num">' + reasonCounts['チェーン店'] + '</div><div class="label">└ チェーン店</div></div>' +
     '<div class="stat"><div class="num">' + reasonCounts['飲食店以外(施設種別)'] + '</div><div class="label">└ 飲食店以外</div></div>' +
+    '<div class="stat"><div class="num">' + reasonCounts['閉業'] + '</div><div class="label">└ 閉業</div></div>' +
+    '<div class="stat"><div class="num">' + reasonCounts['臨時休業'] + '</div><div class="label">└ 臨時休業</div></div>' +
     '<div class="stat"><div class="num">' + stations.length + '</div><div class="label">検索エリア数</div></div>';
 
   runBtn.disabled = false;
